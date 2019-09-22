@@ -1,0 +1,450 @@
+{
+	"AWSTemplateFormatVersion": "2010-09-09",
+	"Description": "PDBA RDS SQL CF Template",
+
+	"Parameters": 
+	{
+		"DBUser":{
+			"NoEcho": "true",
+			"Description": "Enter the database admin account username",
+			"Type": "String",
+			"MinLength": "1",
+			"MaxLength": "16",
+			"AllowedPattern": "[a-zA-Z][a-zA-Z0-9]*",
+			"ConstraintDescription": "Must begin with a letter and contain only alphanumeric characters."
+				},
+		"DBPassword": {
+			"NoEcho": "true",
+			"Description": "Enter the database admin account password",
+			"Type": "String",
+			"MinLength": "8",
+			"MaxLength": "41",
+			"AllowedPattern": "[a-zA-Z0-9!@#$%^&]*",
+			"ConstraintDescription": "must contain only alphanumeric and special !@#$%^& characters with minimum length of 8."
+					},
+
+		"DBInstanceId": {
+			"Description": "Enter the database instance identifier(Ex:MyRDSInstance1)",
+			"Type": "String"
+						},
+
+		"DBSize": {
+			"Description": "Enter the database size(In GB) SSD- 100GB Min, GP2- 200GB Min",
+			"Type": "String"
+				  },
+
+		"DBInstanceType": {
+			"Description": "Enter the RDS Instance Type(Ex:db.t2.small)",
+			"AllowedValues" : ["db.t2.medium", "db.t2.large", "db.m4.large","db.m4.xlarge","db.m4.2xlarge"],
+			"Type": "String"
+						  },
+		"DBEngine": {
+			"Description": "Enter the DB Engine(Ex:sqlserver-ee,sqlserver-se)",
+			"AllowedValues" : ["sqlserver-ee", "sqlserver-se"],
+			"Type": "String"
+					},
+		"DefaultPort": {
+			"Description": "Enter the port(Ex:SQL-1433,PostgreSQL-5432)",
+			"AllowedValues" : ["1433", "5432"],
+			"Type": "String"
+					   },
+		"MultiAZDeploy": {
+			"Description": "Enter True or False for MultiAZ",
+			"AllowedValues" : ["true", "false"],
+			"Default": "true",
+			"Type": "String"
+						 },
+		"Storage": {
+			"Description": "Enter the storage type(Ex:standard | gp2 | io1). ",
+			"AllowedValues" : ["gp2", "io1"],
+			"Type": "String"
+				   },
+		"StorageIOPSNum": {
+			"Description": "Enter the provisioned IOPS number. Ignored if storage type is GP2",
+			"Type": "String"
+				   },
+		"Subnets": {
+        	"Type": "CommaDelimitedList",
+        	"Default": "subnet-8ec5b8e6,subnet-1edcc277",
+        	"Description": "The list of SubnetIds where the stack will be launched"
+    	},
+    	"MonitoringInterval":{
+    		"Type": "String",
+    		"AllowedValues": [1, 5, 10, 15, 30, 60],
+    		"Description": "Monitoring interval in seconds"
+    	},
+    	"SecurityGroupIDs":{
+    		"Type": "CommaDelimitedList",
+        	"Description": "A list of the VPC security group IDs to assign to the DB instance"
+    	},
+    	"ConnectionThreshold":{
+    		"Type": "String",
+    		"Description": "Connections count threshold for Alarm"
+    	},
+    	"IAMARN":{
+    		"Type": "String",
+    		"Description": "Provide a role ARN for backups to S3 bucket"
+
+    	},
+    	"DBSnapshotIdentifier":{
+    		"Type": "String",
+    		"Description": "Please provide Snapshot ARN if need to be restored otherwise leave blank"
+    	},
+		"Tag1": {
+			"Description": "Tag-CostCenter",
+			"Type": "String"
+			},
+		"Tag2": {
+			"Description": "Tag-AssetProtectionLevel",
+			"Type": "String"
+									 },
+		"Tag3": {
+			"Description": "Tag-Team",
+			"Type": "String"
+					 },
+		"Tag4": {
+			"Description": "Tag-Application",
+			"Type": "String"
+							},
+		"Tag5": {
+			"Description": "Tag-Owner",
+			"Type": "String"
+					  },
+		"Tag6": {
+			"Description": "Tag-Email",
+			"Type": "String"
+					  },
+		"Tag7": {
+				"Description": "Tag-Brand",
+				"Type": "String"
+			},
+		"Tag8": {
+			"Description": "Tag-SupportedBy",
+			"Type": "String",
+			"Default": "Platform Database Services"
+			}
+	},
+
+	"Conditions": {
+		"StorageType": {"Fn::Equals" : [{"Ref" : "Storage"}, "io1"]},
+		"UseDbSnapshot" : {
+			"Fn::Not" : [{
+				"Fn::Equals" : [
+					{"Ref" : "DBSnapshotIdentifier"},
+					""
+					]
+			}]
+		}
+	},
+
+
+	"Resources": 
+	{
+		"DBSubnetGroup": {
+        	"Type": "AWS::RDS::DBSubnetGroup",
+        	"Properties": {
+            	"DBSubnetGroupDescription": "DB subent groups",
+            	"SubnetIds": 
+                	{
+                    	"Ref": "Subnets"
+                	}
+        		}	
+    	},
+    	"DBParameterGroup": {
+        	"Type": "AWS::RDS::DBParameterGroup",
+        	"Properties": {
+            "Description": "SQL Server Custom Parameter Group",
+            "Family": {
+                        "Fn::Join": [
+                            "",
+                            [
+                                {
+                                    "Ref": "DBEngine"
+                                },
+                                "-13.0"
+                            ]
+                        ]
+                    },
+            "Parameters": {
+                "1222": "1"
+            	}
+        	}
+    	},
+    	"OptionGroup": {
+    		"Type": "AWS::RDS::OptionGroup",
+    		"Properties": {
+    			"EngineName": {"Ref": "DBEngine"},
+    			"MajorEngineVersion": "13.00",
+    			"OptionGroupDescription": "SQL Server Native Backup OptionGroup",
+    			"OptionConfigurations": [{
+    				"OptionName": "SQLSERVER_BACKUP_RESTORE",
+    				"OptionSettings":[{"Name":"IAM_ROLE_ARN","Value":{"Ref":"IAMARN"}}]
+    			}]
+    		}
+
+    	},
+
+		"DBInstance": {
+			"Type": "AWS::RDS::DBInstance",
+			"Properties": {
+				"AllocatedStorage": {
+					"Ref": "DBSize"
+				},
+				"AllowMajorVersionUpgrade": "false",
+				"AutoMinorVersionUpgrade": "true",
+				"BackupRetentionPeriod": "30",
+				"DBInstanceClass": {
+					"Ref": "DBInstanceType"
+				},
+				"DBInstanceIdentifier": {
+					"Ref": "DBInstanceId"
+				},
+				"DBSubnetGroupName": {
+					"Ref": "DBSubnetGroup"
+				},
+				"DBSnapshotIdentifier" : {
+					"Fn::If" : [
+						"UseDbSnapshot",
+						{ "Ref" : "DBSnapshotIdentifier" },
+						{ "Ref" : "AWS::NoValue"}
+					]
+				},
+				"Engine": {
+					"Ref": "DBEngine"
+				},
+				"LicenseModel": "bring-your-own-license",
+				"MasterUsername": {
+					"Ref": "DBUser"
+				},
+				"MasterUserPassword": {
+					"Ref": "DBPassword"
+				},
+				"MultiAZ": {
+					"Ref": "MultiAZDeploy"
+				},
+				"PubliclyAccessible": "false",
+				"Port": {
+					"Ref": "DefaultPort"
+				},
+				"StorageType": {
+					"Ref": "Storage"
+				},
+				"Timezone": "Pacific Standard Time",
+				"Iops": {
+					"Fn::If": ["StorageType",{"Ref": "StorageIOPSNum"},{"Ref": "AWS::NoValue"}]
+					
+				},
+				"VPCSecurityGroups": {"Ref": "SecurityGroupIDs"},
+				"PreferredBackupWindow": "06:00-07:00",
+            	"PreferredMaintenanceWindow": "sun:08:00-sun:08:30",
+				"MonitoringInterval": {"Ref": "MonitoringInterval"},
+				"DBParameterGroupName": {"Ref": "DBParameterGroup"},
+				"OptionGroupName": {"Ref": "OptionGroup"},
+            	"MonitoringRoleArn": {
+                        "Fn::Join": [
+                            "",
+                            [
+                                "arn:aws:iam::",
+                                {
+                                    "Ref": "AWS::AccountId"
+                                },
+                                ":role/rds-monitoring-role"
+                            ]
+                        ]
+                    },
+				"Tags": [{
+						"Key": "CostCenter",
+						"Value": {"Ref": "Tag1"}
+					},
+
+					{
+						"Key": "AssetProtectionLevel",
+						"Value": {"Ref": "Tag2"}
+					},
+					{
+						"Key": "Team",
+						"Value": {"Ref": "Tag3"}
+					},
+					{
+						"Key": "Application",
+						"Value": {"Ref": "Tag4"}
+					},
+					{
+						"Key": "Owner",
+						"Value": {"Ref": "Tag5"}
+					},
+					{
+						"Key": "Email",
+						"Value": {"Ref": "Tag6"}
+					},
+					{
+						"Key": "Brand",
+						"Value": {"Ref": "Tag7"}
+					},
+					{
+						"Key": "SupportedBy",
+						"Value": {"Ref": "Tag8"}
+					}
+				]
+			}
+					},
+		
+	
+	"RDSCPUUtilization" : {
+      "Type" : "AWS::CloudWatch::Alarm",
+      "Properties": {
+        "ActionsEnabled": "true",
+        "AlarmDescription": "RDS CPU Utilization",
+        "AlarmName" : {
+                        "Fn::Join": [
+                            "",
+                            [
+                                "pdba_cpuutilization_",
+                                {
+                                    "Ref": "DBInstanceId"
+                                }
+                            ]
+                        ]
+                    },
+        "ComparisonOperator": "GreaterThanThreshold",
+        "Dimensions": [
+          {
+            "Name": "DBInstanceIdentifier",
+            "Value": {"Ref" : "DBInstanceId"}
+          }
+        ],
+        "EvaluationPeriods": "1",
+        "MetricName": "CPUUtilization",
+        "Namespace": "AWS/RDS",
+        "Statistic": "Average",
+        "Period": "300",
+        "Threshold": "75"
+					}
+						},
+	"RDSFreeStorageSpace" : {
+      "Type" : "AWS::CloudWatch::Alarm",
+      "Properties": {
+        "ActionsEnabled": "true",
+        "AlarmDescription": "RDS Free Storage Space",
+        "AlarmName" : {
+                        "Fn::Join": [
+                            "",
+                            [
+                                "pdba_lowstoragespace_",
+                                {
+                                    "Ref": "DBInstanceId"
+                                }
+                            ]
+                        ]
+                    },
+        "ComparisonOperator": "LessThanThreshold",
+        "Dimensions": [
+          {
+            "Name": "DBInstanceIdentifier",
+            "Value": {"Ref" : "DBInstanceId"}
+          }
+        ],
+        "EvaluationPeriods": "1",
+        "MetricName": "FreeStorageSpace",
+        "Namespace": "AWS/RDS",
+        "Statistic": "Average",
+        "Period": "300",
+        "Threshold": "20000000000"
+				}
+							},
+	"RDSReadLatency" : {
+      "Type" : "AWS::CloudWatch::Alarm",
+      "Properties": {
+        "ActionsEnabled": "true",
+        "AlarmDescription": "RDS Read Latency",
+        "AlarmName" : {
+                        "Fn::Join": [
+                            "",
+                            [
+                                "pdba_readlatency_",
+                                {
+                                    "Ref": "DBInstanceId"
+                                }
+                            ]
+                        ]
+                    },
+        "ComparisonOperator": "GreaterThanThreshold",
+        "Dimensions": [
+          {
+            "Name": "DBInstanceIdentifier",
+            "Value": {"Ref" : "DBInstanceId"}
+          }
+        ],
+        "EvaluationPeriods": "1",
+        "MetricName": "ReadLatency",
+        "Namespace": "AWS/RDS",
+        "Statistic": "Average",
+        "Period": "300",
+        "Threshold": "0.1"
+      }
+			},
+	"RDSWriteLatency" : {
+      "Type" : "AWS::CloudWatch::Alarm",
+      "Properties": {
+        "ActionsEnabled": "true",
+        "AlarmDescription": "RDS Write Latency",
+        "AlarmName" : {
+                        "Fn::Join": [
+                            "",
+                            [
+                                "pdba_writelatency_",
+                                {
+                                    "Ref": "DBInstanceId"
+                                }
+                            ]
+                        ]
+                    },
+        "ComparisonOperator": "GreaterThanThreshold",
+        "Dimensions": [
+          {
+            "Name": "DBInstanceIdentifier",
+            "Value": {"Ref" : "DBInstanceId"}
+          }
+        ],
+        "EvaluationPeriods": "1",
+        "MetricName": "WriteLatency",
+        "Namespace": "AWS/RDS",
+        "Statistic": "Average",
+        "Period": "300",
+        "Threshold": "0.1"
+      }
+					},
+	"RDSDatabaseConnections" : {
+      "Type" : "AWS::CloudWatch::Alarm",
+      "Properties": {
+        "ActionsEnabled": "true",
+        "AlarmDescription": "RDS Database Connections",
+        "AlarmName" : {
+                        "Fn::Join": [
+                            "",
+                            [
+                                "pdba_dbconnections_",
+                                {
+                                    "Ref": "DBInstanceId"
+                                }
+                            ]
+                        ]
+                    },
+        "ComparisonOperator": "GreaterThanThreshold",
+        "Dimensions": [
+          {
+            "Name": "DBInstanceIdentifier",
+            "Value": {"Ref" : "DBInstanceId"}
+          }
+        ],
+        "EvaluationPeriods": "1",
+        "MetricName": "DatabaseConnections",
+        "Namespace": "AWS/RDS",
+        "Statistic": "Average",
+        "Period": "300",
+        "Threshold": {"Ref":"ConnectionThreshold"}
+					}
+							}
+
+	}
+}
